@@ -56,7 +56,7 @@ findLinuxHosts () {
     fi
     read -p "Enter host range: " host_range
     echo "[STATUS] Finding Linux Hosts..."
-    nmap -sn --reason host_range --disable-arp-ping | grep "ttl 64" -B 1 | grep -E '[0-9].[0-9].[0-9].[0-9]' | cut -d " " -f 5 > linuxhosts
+    nmap -sn --reason $host_range --disable-arp-ping | grep "ttl 64" -B 1 | grep -E '[0-9].[0-9].[0-9].[0-9]' | cut -d " " -f 5 > linuxhosts
     echo "[STATUS] Done."
 }
 
