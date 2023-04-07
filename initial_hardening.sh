@@ -95,21 +95,22 @@ hardenSSH () {
     done
 }
 
-# Change All User Account Passwords
+# Change All User Account Passwords and Remove sudo/adm/wheel
 changePasswords () {
-    echo "[STATUS] Changing User Passwords..."
+    echo "[STATUS] Changing User Passwords and Removing Sudo Privs..."
     read -sp "Enter new pass: " new_pass
     enc_pass=$(openssl passwd -6 $new_pass)
     for host in $linux_hosts
     do
         ssh -i /root/.ssh/.xyz -o StrictHostKeyChecking=no root@$host "cat /etc/passwd | grep 'sh$' | cut -d ":" -f 1 | tee users.txt" > users.txt
+        cat users.txt > users_$host.txt 
         echo ""
         for user in $(cat users.txt)
         do
             echo "Changing Password For: $user"
-            ssh -i /root/.ssh/.xyz -o StrictHostKeyChecking=no root@$host "echo '$user:$enc_pass' | chpasswd -e"
+            ssh -i /root/.ssh/.xyz -o StrictHostKeyChecking=no root@$host "echo '$user:$enc_pass' | chpasswd -e"          
         done
-        read -p "Change root password (y/n)?: " change_root
+        read -p "Change root password for $host (y/n)?: " change_root
         if [ $change_root == "y" ]
         then
             read -sp "Enter new root password: " root_pass
@@ -122,29 +123,61 @@ changePasswords () {
     echo "[STATUS] Done."
 }
 
-disableHistoryRemote () {
+removeSudo () {
+    mkdir $PWD/privs
+    echo "[STATUS] Backing-Up Original Privileges..."
+    for host in $linux_hosts
+    do
+        ssh -i /root/.ssh/.xyz -o StrictHostKeyChecking=no root@$host "bash clientHardening.sh --enumPrivs"
+        scp -i /root/.ssh/.xyz root@$host:/root/user_privs.txt $PWD/privs/user_privs_original_$host.txt
+        for user in $(cat users.txt)
+        do
+            echo "Removing Sudo Privileges For: $user"
+            for priv in "adm" "sudo" "wheel"
+            do
+                ssh -i /root/.ssh/.xyz -o StrictHostKeyChecking=no root@$host "gpasswd -d $user $priv 2> /dev/null"
+            done
+        done
+    done      
+}
+
+remoteHardening () {
+    mkdir $PWD/logins $PWD/network
     for host in $linux_hosts
     do 
-        scp -i /root/.ssh/.xyz /root/disablehist.sh root@$host:/root
-        ssh -i /root/.ssh/.xyz -o StrictHostKeyChecking=no root@$host "bash disablehist.sh"
+        ssh -i /root/.ssh/.xyz -o StrictHostKeyChecking=no root@$host "bash clientHardening.sh --all"
+        scp -i /root/.ssh/.xyz root@$host:/root/user_privs.txt $PWD/privs/user_privs_$host.txt
+        scp -i /root/.ssh/.xyz root@$host:/root/logins.log $PWD/logins/logins_$host.log
+        scp -i /root/.ssh/.xyz root@$host:/root/network.log $PWD/network/network_$host.log
+
+    done
+}
+
+updateHardening () {
+    for host in $linux_hosts
+    do 
+        echo "[STATUS] Transfering Hardening File To: $host"
+        scp -i /root/.ssh/.xyz $PWD/clientHardening.sh root@$host:/root/clientHardening.sh
+        echo "[STATUS] Done."
     done
 }
 
 
-
 main () {
-    echo '###################'
-    echo ' Initial Hardening '
-    echo '###################'
+    #echo '###################'
+    #echo ' Initial Hardening '
+    #echo '###################'
     disableHistory
     createSSHKeys
-    findLinuxHosts
+    #findLinuxHosts
     linux_hosts=$(cat linuxhosts)
     copyPubKey
-    addUser
     hardenSSH
+    updateHardening
     changePasswords
-    disableHistoryRemote
+    removeSudo
+    addUser
+    remoteHardening
 }
 
 main
